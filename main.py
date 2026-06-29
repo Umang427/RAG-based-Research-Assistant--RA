@@ -1,63 +1,76 @@
+import streamlit as st
 from langchain_community.document_loaders import DirectoryLoader
 from langchain_community.document_loaders import UnstructuredFileLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_huggingface import HuggingFaceEndpoint,ChatHuggingFace
-import streamlit as st
+from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.runnables import RunnableParallel,RunnablePassthrough
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-
-### ---MAIN APP---
 
 load_dotenv()
 
-#--- doc preaparing area ---
-Doc_loader= DirectoryLoader(
-    "docs",
-    glob="**/*.*",
-    loader_cls=UnstructuredFileLoader
-)
-docs=Doc_loader.load()
+st.markdown("""
+<style>
+div.stButton > button:first-child {
+    background-color: #2b65ba;
+    color: white;
+    border-radius: 6px;
+    border: none;
+    font-weight: bold;
+    padding: 0.5rem 1rem;
+    transition: all 0.3s ease;
+}
+div.stButton > button:first-child:hover {
+    background-color: #1a427d;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+</style>
+""", unsafe_allow_html=True)
 
-splitter=RecursiveCharacterTextSplitter(
-    chunk_size=1000,chunk_overlap=200
-)
-chunked_docs = splitter.split_documents(docs)
+st.title("📚 AI Research Assistant")
+st.write("Search and synthesize information directly from your document base.")
 
-#--- using a free hugging face Api for embedding ---
-embeddings = HuggingFaceEmbeddings(
-    model_name="BAAI/bge-small-en-v1.5"
-)
+@st.cache_resource(show_spinner="Initializing RAG Pipeline and loading documents...")
+def setup_pipeline():
+    Doc_loader = DirectoryLoader(
+        "docs",
+        glob="**/*.*",
+        loader_cls=UnstructuredFileLoader
+    )
+    docs = Doc_loader.load()
 
-#--- vector store ---
-vector_store=Chroma.from_documents(
-    chunked_docs,embeddings
-)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000, chunk_overlap=200
+    )
+    chunked_docs = splitter.split_documents(docs)
 
-#--- retrival ---
-retrival=vector_store.as_retriever(
-    search_type="similarity",search_kwargs={'k':10}
-)
-Question=input("Tell me the question")
+    embeddings = HuggingFaceEmbeddings(
+        model_name="BAAI/bge-small-en-v1.5"
+    )
 
+    vector_store = Chroma.from_documents(
+        chunked_docs, embeddings
+    )
 
-#--- llm and prompting and parser---
-llm=HuggingFaceEndpoint(
-    repo_id="meta-llama/Meta-Llama-3-8B-Instruct",
-    task="conversational",
-    temperature=0.2
-)
+    retrival = vector_store.as_retriever(
+        search_type="similarity", search_kwargs={'k': 10}
+    )
 
-model=ChatHuggingFace(llm=llm)
+    llm = HuggingFaceEndpoint(
+        repo_id="meta-llama/Meta-Llama-3-8B-Instruct",
+        task="conversational",
+        temperature=0.2
+    )
 
-prompt = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """You are an elite, objective, and highly precise AI Research Assistant. Your goal is to help researchers synthesize information, analyze documents, and answer complex queries based strictly on the provided context.
+    model = ChatHuggingFace(llm=llm)
+
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You are an elite, objective, and highly precise AI Research Assistant. Your goal is to help researchers synthesize information, analyze documents, and answer complex queries based strictly on the provided context.
 
 CRITICAL INSTRUCTIONS FOR ACCURACY:
 1. Rely ONLY on the clear facts directly mentioned in the Context section below. Do not assume, extrapolate, or bring in outside training data.
@@ -69,22 +82,31 @@ CRITICAL INSTRUCTIONS FOR ACCURACY:
 CONTEXT:
 {context}
 ----------------"""
-    ),
-    (
-        "human",
-        "{prompt}"
-    )
-])
+        ),
+        (
+            "human",
+            "{prompt}"
+        )
+    ])
 
-parser=StrOutputParser()
+    parser = StrOutputParser()
 
-parllel_chain = RunnableParallel({
-    'context': retrival,
-    'prompt':RunnablePassthrough()
-})
+    parllel_chain = RunnableParallel({
+        'context': retrival,
+        'prompt': RunnablePassthrough()
+    })
 
-main_chain= parllel_chain | prompt | model | parser
+    return parllel_chain | prompt | model | parser
 
-result = main_chain.invoke(Question)
-print('<----AI Response---->')
-print(result)
+main_chain = setup_pipeline()
+
+Question = st.text_input("Ask a question based on your documents:")
+
+if st.button("Search"):
+    if Question:
+        with st.spinner("Analyzing..."):
+            result = main_chain.invoke(Question)
+            st.markdown("### Response")
+            st.write(result)
+    else:
+        st.warning("Please enter a question first.")
