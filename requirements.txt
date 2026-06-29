@@ -7,6 +7,7 @@ unstructured
 unstructured[pdf]
 langchain_chroma
 sentence-transformers
+opencv-python-headless
 
 # --- Hugging Face & Open Source Integrations ---
 huggingface-hub
