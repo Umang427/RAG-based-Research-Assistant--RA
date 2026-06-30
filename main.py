@@ -1,6 +1,5 @@
 import streamlit as st
-from langchain_community.document_loaders import DirectoryLoader
-from langchain_community.document_loaders import UnstructuredFileLoader
+from langchain_community.document_loaders import PyPDFDirectoryLoader # Swapped Loader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
@@ -35,11 +34,8 @@ st.write("Search and synthesize information directly from your document base.")
 
 @st.cache_resource(show_spinner="Initializing RAG Pipeline and loading documents...")
 def setup_pipeline():
-    Doc_loader = DirectoryLoader(
-        "docs",
-        glob="**/*.*",
-        loader_cls=UnstructuredFileLoader
-    )
+    # --- The Lightweight PDF Loader ---
+    Doc_loader = PyPDFDirectoryLoader("docs") 
     docs = Doc_loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
