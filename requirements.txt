@@ -1,28 +1,10 @@
-# --- Core Framework & Orchestration ---
-langchain>=0.3.0
-langgraph>=0.2.0
-langchain-core>=0.3.0
-langchain-community>=0.3.0
-pypdf
-langchain_chroma
-sentence-transformers
-opencv-python-headless
-
-# --- Hugging Face & Open Source Integrations ---
-huggingface-hub
-transformers
-torch
-langchain-huggingface
-
-# --- Proprietary Model Providers ---
-langchain-openai
-langchain-anthropic
-langchain-google-genai
-
-# --- Essential Utilities ---
-python-dotenv
-tavily-python
-
-# ---UI---
 streamlit
+pypdf
+langchain
+langchain-core
+langchain-community
+langchain-huggingface
+langchain-chroma
+sentence-transformers
+python-dotenv
 torchvision

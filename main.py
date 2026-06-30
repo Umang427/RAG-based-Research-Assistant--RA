@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+from operator import itemgetter
 from langchain_community.document_loaders import PyPDFLoader 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
@@ -108,11 +109,16 @@ CONTEXT:
 
     parser = StrOutputParser()
 
-    # Define Parallel Chain
+    # Define Parallel Chain.
+    # NOTE: RunnableParallel executes each branch in its own background thread.
+    # st.session_state can only be read on Streamlit's main script thread, so we
+    # can no longer reach into it from inside the chain (that's what caused the
+    # AttributeError/KeyError crash). Instead, chat_history and the question are
+    # passed in as plain data via .invoke({...}) and just routed with itemgetter.
     parllel_chain = RunnableParallel({
-        'context': retriever,
-        'prompt': RunnablePassthrough(),
-        'chat_history': lambda x: st.session_state.chat_history 
+        'context': itemgetter("prompt") | retriever,
+        'prompt': itemgetter("prompt"),
+        'chat_history': itemgetter("chat_history"),
     })
 
     return parllel_chain | prompt | model | parser
@@ -135,7 +141,10 @@ if uploaded_file is not None:
     if st.button("Search"):
         if Question:
             with st.spinner("Analyzing..."):
-                result = main_chain.invoke(Question)
+                result = main_chain.invoke({
+                    "prompt": Question,
+                    "chat_history": st.session_state.chat_history,
+                })
                 st.markdown("### Response")
                 st.write(result)
                 
