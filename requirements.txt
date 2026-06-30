@@ -25,3 +25,4 @@ tavily-python
 
 # ---UI---
 streamlit
+torchvision
