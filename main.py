@@ -1,7 +1,7 @@
 import streamlit as st
 import tempfile
 import os
-from langchain_community.document_loaders import PyPDFLoader # Swapped to single-file loader
+from langchain_community.document_loaders import PyPDFLoader 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
@@ -12,6 +12,11 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
+
+# --- NEW: MEMORY STEP 1 ---
+# Create the memory vault if it doesn't exist yet when the app loads
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = "No previous conversation."
 
 st.markdown("""
 <style>
@@ -34,13 +39,10 @@ div.stButton > button:first-child:hover {
 st.title("📚 AI Research Assistant")
 st.write("Upload a document and ask questions about it.")
 
-# --- 1. The File Uploader UI ---
 uploaded_file = st.file_uploader("Upload your PDF research paper", type=["pdf"])
 
-# We pass the file_path into the cache function so it builds a unique vector store per file
 @st.cache_resource(show_spinner="Processing document and building RAG pipeline...")
 def setup_pipeline(file_path):
-    # Use PyPDFLoader for a single file instead of DirectoryLoader
     Doc_loader = PyPDFLoader(file_path)
     docs = Doc_loader.load()
 
@@ -69,6 +71,8 @@ def setup_pipeline(file_path):
 
     model = ChatHuggingFace(llm=llm)
 
+    # --- NEW: MEMORY STEP 2 ---
+    # Added the {chat_history} variable right into the system prompt
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
@@ -80,6 +84,9 @@ CRITICAL INSTRUCTIONS FOR ACCURACY:
 3. Keep your tone academic, neutral, and precise.
 4. When referencing points from different parts of the context, group them logically.
 
+----------------
+PREVIOUS CHAT HISTORY:
+{chat_history}
 ----------------
 CONTEXT:
 {context}
@@ -93,29 +100,28 @@ CONTEXT:
 
     parser = StrOutputParser()
 
+    # --- NEW: MEMORY STEP 3 ---
+    # Tell the chain to grab the current memory string every time it runs
     parllel_chain = RunnableParallel({
         'context': retriever,
-        'prompt': RunnablePassthrough()
+        'prompt': RunnablePassthrough(),
+        'chat_history': lambda x: st.session_state.chat_history 
     })
 
     return parllel_chain | prompt | model | parser
 
 
-# --- 2. Orchestration Logic ---
-# Only build the pipeline if a file has actually been uploaded
+# --- Orchestration Logic ---
 if uploaded_file is not None:
     
-    # Securely save the uploaded file to a temporary directory on the server
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(uploaded_file.getvalue())
         tmp_path = tmp_file.name
 
-    # Pass that temporary file path to our pipeline
     main_chain = setup_pipeline(tmp_path)
     
     st.success("Document loaded and chunked successfully! You can now search it.")
 
-    # --- 3. The Search UI ---
     Question = st.text_input("Ask a question based on your documents:")
 
     if st.button("Search"):
@@ -124,8 +130,12 @@ if uploaded_file is not None:
                 result = main_chain.invoke(Question)
                 st.markdown("### Response")
                 st.write(result)
+                
+                # --- NEW: MEMORY STEP 4 ---
+                # Append the newest question and answer to the vault
+                st.session_state.chat_history += f"\nUser: {Question}\nAI: {result}\n"
+                
         else:
             st.warning("Please enter a question first.")
 else:
-    # What the user sees before they upload anything
     st.info("👆 Please upload a PDF file to begin.")
