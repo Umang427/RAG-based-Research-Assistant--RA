@@ -1,5 +1,7 @@
 import streamlit as st
-from langchain_community.document_loaders import PyPDFDirectoryLoader # Swapped Loader
+import tempfile
+import os
+from langchain_community.document_loaders import PyPDFLoader # Swapped to single-file loader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
@@ -30,12 +32,16 @@ div.stButton > button:first-child:hover {
 """, unsafe_allow_html=True)
 
 st.title("📚 AI Research Assistant")
-st.write("Search and synthesize information directly from your document base.")
+st.write("Upload a document and ask questions about it.")
 
-@st.cache_resource(show_spinner="Initializing RAG Pipeline and loading documents...")
-def setup_pipeline():
-    # --- The Lightweight PDF Loader ---
-    Doc_loader = PyPDFDirectoryLoader("docs") 
+# --- 1. The File Uploader UI ---
+uploaded_file = st.file_uploader("Upload your PDF research paper", type=["pdf"])
+
+# We pass the file_path into the cache function so it builds a unique vector store per file
+@st.cache_resource(show_spinner="Processing document and building RAG pipeline...")
+def setup_pipeline(file_path):
+    # Use PyPDFLoader for a single file instead of DirectoryLoader
+    Doc_loader = PyPDFLoader(file_path)
     docs = Doc_loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
@@ -51,7 +57,7 @@ def setup_pipeline():
         chunked_docs, embeddings
     )
 
-    retrival = vector_store.as_retriever(
+    retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={'k': 10}
     )
 
@@ -88,21 +94,38 @@ CONTEXT:
     parser = StrOutputParser()
 
     parllel_chain = RunnableParallel({
-        'context': retrival,
+        'context': retriever,
         'prompt': RunnablePassthrough()
     })
 
     return parllel_chain | prompt | model | parser
 
-main_chain = setup_pipeline()
 
-Question = st.text_input("Ask a question based on your documents:")
+# --- 2. Orchestration Logic ---
+# Only build the pipeline if a file has actually been uploaded
+if uploaded_file is not None:
+    
+    # Securely save the uploaded file to a temporary directory on the server
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(uploaded_file.getvalue())
+        tmp_path = tmp_file.name
 
-if st.button("Search"):
-    if Question:
-        with st.spinner("Analyzing..."):
-            result = main_chain.invoke(Question)
-            st.markdown("### Response")
-            st.write(result)
-    else:
-        st.warning("Please enter a question first.")
+    # Pass that temporary file path to our pipeline
+    main_chain = setup_pipeline(tmp_path)
+    
+    st.success("Document loaded and chunked successfully! You can now search it.")
+
+    # --- 3. The Search UI ---
+    Question = st.text_input("Ask a question based on your documents:")
+
+    if st.button("Search"):
+        if Question:
+            with st.spinner("Analyzing..."):
+                result = main_chain.invoke(Question)
+                st.markdown("### Response")
+                st.write(result)
+        else:
+            st.warning("Please enter a question first.")
+else:
+    # What the user sees before they upload anything
+    st.info("👆 Please upload a PDF file to begin.")
