@@ -13,11 +13,12 @@ from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
 
-# --- NEW: MEMORY STEP 1 ---
-# Create the memory vault if it doesn't exist yet when the app loads
+# --- INITIALIZE MEMORY ---
+# Initializing session state for chat_history to prevent AttributeError
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = "No previous conversation."
 
+# --- UI STYLING ---
 st.markdown("""
 <style>
 div.stButton > button:first-child {
@@ -39,30 +40,38 @@ div.stButton > button:first-child:hover {
 st.title("📚 AI Research Assistant")
 st.write("Upload a document and ask questions about it.")
 
+# --- FILE UPLOADER ---
 uploaded_file = st.file_uploader("Upload your PDF research paper", type=["pdf"])
 
+# --- RAG PIPELINE SETUP ---
 @st.cache_resource(show_spinner="Processing document and building RAG pipeline...")
 def setup_pipeline(file_path):
+    # Use PyPDFLoader to load the PDF
     Doc_loader = PyPDFLoader(file_path)
     docs = Doc_loader.load()
 
+    # Split text into chunks
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000, chunk_overlap=200
     )
     chunked_docs = splitter.split_documents(docs)
 
+    # Generate embeddings
     embeddings = HuggingFaceEmbeddings(
         model_name="BAAI/bge-small-en-v1.5"
     )
 
+    # Create Vector Store
     vector_store = Chroma.from_documents(
         chunked_docs, embeddings
     )
 
+    # Setup Retriever
     retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={'k': 10}
     )
 
+    # Initialize LLM
     llm = HuggingFaceEndpoint(
         repo_id="meta-llama/Meta-Llama-3-8B-Instruct",
         task="conversational",
@@ -71,8 +80,7 @@ def setup_pipeline(file_path):
 
     model = ChatHuggingFace(llm=llm)
 
-    # --- NEW: MEMORY STEP 2 ---
-    # Added the {chat_history} variable right into the system prompt
+    # Define Prompt Template with Memory and Context
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",
@@ -100,8 +108,7 @@ CONTEXT:
 
     parser = StrOutputParser()
 
-    # --- NEW: MEMORY STEP 3 ---
-    # Tell the chain to grab the current memory string every time it runs
+    # Define Parallel Chain
     parllel_chain = RunnableParallel({
         'context': retriever,
         'prompt': RunnablePassthrough(),
@@ -111,9 +118,10 @@ CONTEXT:
     return parllel_chain | prompt | model | parser
 
 
-# --- Orchestration Logic ---
+# --- ORCHESTRATION LOGIC ---
 if uploaded_file is not None:
     
+    # Save uploaded file to temp path
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(uploaded_file.getvalue())
         tmp_path = tmp_file.name
@@ -131,8 +139,7 @@ if uploaded_file is not None:
                 st.markdown("### Response")
                 st.write(result)
                 
-                # --- NEW: MEMORY STEP 4 ---
-                # Append the newest question and answer to the vault
+                # Append result to memory vault
                 st.session_state.chat_history += f"\nUser: {Question}\nAI: {result}\n"
                 
         else:
